@@ -1,45 +1,39 @@
 package com.udacity.asteroidradar.main
 
+import android.app.Application
 import android.util.Log
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.udacity.asteroidradar.Asteroid
+import androidx.lifecycle.*
 import com.udacity.asteroidradar.Constants
-import com.udacity.asteroidradar.PictureOfDay
 import com.udacity.asteroidradar.api.NasaAPI
-import com.udacity.asteroidradar.api.parseAsteroidsJsonResult
+import com.udacity.asteroidradar.api.getDay
+import com.udacity.asteroidradar.database.AsteroidDatabase.Companion.getDatabase
+import com.udacity.asteroidradar.database.repository.AsteroidRepository
+import com.udacity.asteroidradar.model.Asteroid
+import com.udacity.asteroidradar.model.PictureOfDay
 import kotlinx.coroutines.launch
-import org.json.JSONObject
-import java.lang.Exception
-import java.text.SimpleDateFormat
-import java.util.*
 
-class MainViewModel: ViewModel() {
+class MainViewModel(application: Application): AndroidViewModel(application) {
 
     private val sTAG = MainViewModel::class.java.simpleName
 
+    private val database = getDatabase(application)
+    private val asteroidRepository = AsteroidRepository(database)
+
     enum class PictureOfTheDayStatus { LOADING, ERROR, DONE }
-    enum class AsteroidStatus {LOADING, ERROR, DONE}
 
     private val _podStatus = MutableLiveData<PictureOfTheDayStatus>()
     val podStatus: LiveData<PictureOfTheDayStatus>
         get() = _podStatus
 
-    private val _asteroidStatus = MutableLiveData<AsteroidStatus>()
-    val asteroidStatus: LiveData<AsteroidStatus>
-        get() = _asteroidStatus
-
     private val _navigateToSelectedAsteroid = MutableLiveData<Asteroid>()
     val navigateToSelectedAsteroid: LiveData<Asteroid>
         get() = _navigateToSelectedAsteroid
 
-    private val _pictureOfTheDay = MutableLiveData<PictureOfDay>()
+    private var _pictureOfTheDay = MutableLiveData<PictureOfDay>()
     val pictureOfDay: LiveData<PictureOfDay>
         get() = _pictureOfTheDay
 
-    private val _asteroidList = MutableLiveData<List<Asteroid>>()
+    private var _asteroidList = asteroidRepository.allAsteroids
     val asteroidList: LiveData<List<Asteroid>>
         get() = _asteroidList
 
@@ -50,9 +44,16 @@ class MainViewModel: ViewModel() {
     fun displayPropertyDetailsComplete() {
         _navigateToSelectedAsteroid.value = null
     }
+
     init {
+        viewModelScope.launch {
+            try {
+                asteroidRepository.refreshAsteroids()
+            } catch (e: Exception){
+                Log.e(sTAG, "Error: ${e.printStackTrace()}")
+            }
+        }
         getPictureOfTheDay()
-        getAsteroidList()
     }
 
     private fun getPictureOfTheDay() {
@@ -71,36 +72,16 @@ class MainViewModel: ViewModel() {
         }
     }
 
-    private fun getAsteroidList() {
+    fun getAsteroidsForToday() {
         viewModelScope.launch {
-            _asteroidStatus.value = AsteroidStatus.LOADING
-            try {
-                val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                val calendar = Calendar.getInstance()
-                val startDate = dateFormat.format(Date())
-                calendar.time = Date()
-                calendar.add(Calendar.DAY_OF_YEAR, 7)
-                val endDate = dateFormat.format(calendar.time)
-                Log.d(sTAG, "Start Date: $startDate")
-                Log.d(sTAG, "End Date: $endDate")
+            Log.d(sTAG, "Today: ${getDay(0)}")
+            _asteroidList = asteroidRepository.asteroidsToday
+        }
+    }
 
-                val asteroidList = parseAsteroidsJsonResult(
-                    JSONObject(
-                        NasaAPI.retrofitService.getFeed(
-                            apiKey = Constants.API_KEY,
-                            startDate = startDate,
-                            endDate = endDate
-                        )
-                    )
-                )
-                _asteroidStatus.value = AsteroidStatus.DONE
-//                _asteroidList.value = asteroidList
-                Log.d(sTAG, "Asteroid List: $asteroidList")
-            } catch (e: Exception) {
-                _asteroidStatus.value = AsteroidStatus.ERROR
-                Log.d(sTAG, "Error:")
-                e.printStackTrace()
-            }
+    fun getAllAsteroids() {
+        viewModelScope.launch {
+            _asteroidList = asteroidRepository.allAsteroids
         }
     }
 }
